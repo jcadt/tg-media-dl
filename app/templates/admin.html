@@ -394,25 +394,158 @@ async function showResults(jobId, data) {
   const content = document.getElementById('results-content');
   card.style.display = 'block';
   const job = data.job; const downloads = data.downloads || [];
-  let html = `<div style="margin-bottom:8px"><strong>${job.query}</strong> — ${job.kind} <span class="badge badge-${job.status === 'done' ? 'ok' : job.status === 'error' ? 'err' : 'warn'}">${job.status}</span></div>`;
-  if (job.status === 'done' && job.error_msg && !downloads.length) html += `<p class="status-error">${job.error_msg}</p>`;
+  // Parse progress for episode grouping
+  let progress = {};
+  try { progress = typeof job.progress === 'string' ? JSON.parse(job.progress) : (job.progress || {}); } catch {}
+  const episodes = progress.episodes || {};
+  const seriesName = progress.series_name || '';
+
+  let html = `<div style="margin-bottom:8px"><strong>${job.query}</strong> — ${job.kind}
+    <span class="badge badge-${job.status === 'done' ? 'ok' : job.status === 'error' ? 'err' : 'warn'}">${job.status}</span>
+    ${seriesName ? `<span style="font-size:0.8rem;color:#8b949e"> → ${seriesName}</span>` : ''}
+  </div>`;
+
+  if (job.status === 'done' && job.error_msg && !downloads.length) {
+    html += `<p class="status-error">${job.error_msg}</p>`;
+  }
+
   if (downloads.length) {
     const pending = downloads.filter(d => d.status === 'pending').length;
     const skipped = downloads.filter(d => d.status === 'skipped').length;
     const done = downloads.filter(d => d.status === 'done').length;
-    html += `<div style="margin-bottom:12px;font-size:0.85rem;color:#8b949e">${downloads.length} archivos · ${done} listos · ${skipped} existentes · ${pending} pendientes</div>`;
-    if (pending > 0) {
-      html += `<button class="btn btn-primary btn-sm" hx-post="/api/jobs/${jobId}/run" hx-swap="none" hx-on::after-request="refreshJobs();pollJob(${jobId})">▶️ Descargar ${pending} pendientes</button>`;
+    const total = downloads.length;
+
+    html += `<div style="margin-bottom:12px;font-size:0.85rem;color:#8b949e">
+      ${total} archivos · ${done} listos · ${skipped} existentes/no seleccionados · ${pending} pendientes
+    </div>`;
+
+    // If there are episode groupings, show grouped with resolution selection
+    if (Object.keys(episodes).length > 0) {
+      html += `<table style="margin-top:8px"><thead><tr>
+        <th style="width:30px">Sel.</th><th>Episodio</th><th>Resoluciones disponibles</th><th>Tamaño</th><th>Estado</th>
+      </tr></thead><tbody>`;
+
+      for (const [epKey, files] of Object.entries(episodes)) {
+        const epLabel = epKey === '__unknown__' ? '❓ Sin identificar' : epKey;
+        const multiRes = files.length > 1;
+
+        for (const f of files) {
+          const dl = downloads.find(d => d.id === f.dl_id);
+          if (!dl) continue;
+          const size = f.file_size ? (f.file_size / 1024 / 1024).toFixed(1) + ' MB' : '?';
+          const isPending = dl.status === 'pending';
+          const isSkipped = dl.status === 'skipped';
+
+          html += `<tr style="${isSkipped ? 'opacity:0.5' : ''}">
+            <td>
+              <input type="checkbox" data-dl="${f.dl_id}" ${isPending ? 'checked' : ''}
+                     onclick="toggleDownload(${f.dl_id}, this)"
+                     title="${isPending ? 'Quitar de la descarga' : 'Seleccionar para descargar'}">
+            </td>
+            <td>${multiRes && files.indexOf(f) === 0 ? `<strong>${epLabel}</strong>` : ''}</td>
+            <td>
+              <span class="badge ${isPending ? 'badge-ok' : 'badge-err'}">${f.resolution || '?'}</span>
+              ${multiRes ? `<span style="font-size:0.75rem;color:#8b949e">${f.file_name.split(' - ').pop()?.substring(0,40) || f.file_name.substring(0,40)}</span>` : ''}
+            </td>
+            <td>${size}</td>
+            <td class="status-${dl.status}">${dl.status === 'skipped' ? '❌ No' : '✅ Sí'}</td>
+          </tr>`;
+        }
+      }
+      html += '</tbody></table>';
+
+      if (pending > 0) {
+        html += `<div class="btn-group">
+          <button class="btn btn-primary" hx-post="/api/jobs/${jobId}/run" hx-swap="none"
+                  hx-on::after-request="refreshJobs();pollJob(${jobId})">
+            ▶️ Descargar ${pending} seleccionados
+          </button>
+          <button class="btn btn-sm" onclick="selectBestResolutions(${jobId})">🎯 Auto: mejor resolución</button>
+        </div>`;
+      }
+    } else {
+      // Fallback: old flat table
+      html += `<table style="margin-top:12px"><thead><tr><th>Archivo</th><th>Res.</th><th>Tamaño</th><th>Estado</th><th>Sel.</th></tr></thead><tbody>`;
+      for (const d of downloads) {
+        const size = d.file_size ? (d.file_size / 1024 / 1024).toFixed(1) + ' MB' : '?';
+        const mediaPath = d.media_path ? d.media_path.split('/').slice(-3).join('/') : '-';
+        const isPending = d.status === 'pending';
+        html += `<tr>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.file_name}</td>
+          <td><span class="badge badge-info">${d.resolution || '?'}</span></td>
+          <td>${size}</td>
+          <td class="status-${d.status}">${d.status === 'skipped' ? '✅ Ya existe' : d.status === 'done' ? '✅' : d.status}</td>
+          <td><input type="checkbox" ${isPending ? 'checked' : ''} onclick="toggleDownload(${d.id}, this)"></td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
     }
-    html += `<table style="margin-top:12px"><thead><tr><th>Archivo</th><th>Tamaño</th><th>Estado</th><th>Destino</th></tr></thead><tbody>`;
-    for (const d of downloads) {
-      const size = d.file_size ? (d.file_size / 1024 / 1024).toFixed(1) + ' MB' : '?';
-      const mediaPath = d.media_path ? d.media_path.split('/').slice(-3).join('/') : '-';
-      html += `<tr><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.file_name}</td><td>${size}</td><td class="status-${d.status}">${d.status === 'skipped' ? '✅ Ya existe' : d.status}</td><td style="font-size:0.75rem">${mediaPath}</td></tr>`;
-    }
-    html += '</tbody></table>';
   }
   content.innerHTML = html;
+}
+
+// ── Download selection ──────────────────────────────
+async function toggleDownload(dlId, checkbox) {
+  const selected = checkbox.checked ? '1' : '0';
+  try {
+    const r = await fetch(`/api/downloads/${dlId}/select`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `selected=${selected}`,
+    });
+    const data = await r.json();
+    // Update the row style
+    const row = checkbox.closest('tr');
+    if (data.status === 'skipped') {
+      row.style.opacity = '0.5';
+      row.querySelector('.status-\\w+')?.classList.add('status-skipped');
+    } else {
+      row.style.opacity = '1';
+    }
+  } catch {}
+}
+
+function selectBestResolutions(jobId) {
+  // Auto-select the best resolution per episode and deselect the rest
+  const table = document.querySelector('#results-content table');
+  if (!table) return;
+  const episodes = {};
+  const rows = table.querySelectorAll('tbody tr');
+  let currentEp = null;
+  // Reset all to pending first
+  for (const row of rows) {
+    const chk = row.querySelector('input[type="checkbox"]');
+    if (chk && !chk.checked) { chk.checked = true; toggleDownload(parseInt(chk.dataset.dl), chk); }
+  }
+  // Re-group and find best
+  for (const row of rows) {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 5) continue;
+    const epCell = cells[1].textContent.trim();
+    if (epCell) currentEp = epCell;
+    const resCell = cells[2].textContent.trim();
+    const chk = row.querySelector('input[type="checkbox"]');
+    if (currentEp && chk) {
+      if (!episodes[currentEp]) episodes[currentEp] = [];
+      episodes[currentEp].push({ row, chk, res: resCell });
+    }
+  }
+
+  const resOrder = ['4K', '1080p', '720p', '480p', '360p', '?'];
+  for (const [ep, files] of Object.entries(episodes)) {
+    if (files.length <= 1) continue;
+    files.sort((a, b) => {
+      const ai = resOrder.indexOf(a.res);
+      const bi = resOrder.indexOf(b.res);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    });
+    // Keep best (first), deselect rest
+    for (let i = 1; i < files.length; i++) {
+      files[i].chk.checked = false;
+      toggleDownload(parseInt(files[i].chk.dataset.dl), files[i].chk);
+    }
+  }
+  toast('Mejores resoluciones seleccionadas', 'success');
 }
 
 // ── Requests ────────────────────────────────────────────

@@ -61,26 +61,27 @@ class DownloadEngine:
         # Match Telegram files to episodes
         queued = 0
         skipped = 0
+        episodes: dict[str, list[dict]] = {}  # "S01E02" → [file_dict, ...]
         for f in files:
             fname = f["file_name"]
             m = SERIES_FILE_RE.match(fname)
             if not m:
-                # Try to extract episode number in other ways
                 ep_num = self._extract_ep_num(fname)
                 if ep_num is None:
-                    # Flag as unknown
-                    ep_info = {"season": None, "episode": None}
+                    ep_key = "__unknown__"
+                    season_num, ep_num_val = None, None
                 else:
-                    ep_info = {"season": 1, "episode": ep_num}
+                    ep_key = f"S01E{ep_num:02d}"
+                    season_num, ep_num_val = 1, ep_num
             else:
-                ep_info = {"season": int(m.group("season")),
-                           "episode": int(m.group("episode"))}
+                season_num = int(m.group("season"))
+                ep_num_val = int(m.group("episode"))
+                ep_key = f"S{season_num:02d}E{ep_num_val:02d}"
 
-            # Check if already exists
             exists = False
-            if ep_info["season"] is not None and ep_info["episode"] is not None:
-                season_eps = existing_map.get(ep_info["season"], set())
-                if ep_info["episode"] in season_eps:
+            if season_num is not None and ep_num_val is not None:
+                season_eps = existing_map.get(season_num, set())
+                if ep_num_val in season_eps:
                     exists = True
 
             dl_id = create_download(
@@ -88,22 +89,37 @@ class DownloadEngine:
                 msg_id=f.get("id", 0),
             )
 
+            # Store resolution
+            resolution = f.get("resolution", "?")
+            update_download(dl_id, resolution=resolution)
+
             if exists:
                 update_download(dl_id, status="skipped",
                                 downloaded_path="",
                                 media_path=str(self._find_existing_path(
-                                    existing_info, ep_info["season"], ep_info["episode"]) or ""))
+                                    existing_info, season_num, ep_num_val) or ""))
                 skipped += 1
             else:
                 update_download(dl_id, status="pending")
                 queued += 1
+
+            # Group by episode
+            episodes.setdefault(ep_key, []).append({
+                "dl_id": dl_id,
+                "file_name": fname,
+                "resolution": resolution,
+                "file_size": f.get("file_size", 0),
+                "exists": exists,
+                "msg_id": f.get("id", 0),
+            })
 
         update_job(job_id, status="pending",
                    total_files=len(files),
                    completed_files=skipped,
                    progress={"series_name": series_name,
                              "queued": queued, "skipped": skipped,
-                             "total": len(files)})
+                             "total": len(files),
+                             "episodes": episodes})
 
     async def run_series_job(self, job_id: int, progress_cb=None) -> None:
         """Phase 2: download pending files, rename, copy to media."""
@@ -203,6 +219,8 @@ class DownloadEngine:
         for f in files:
             dl_id = create_download(job_id, f["file_name"], f.get("file_size", 0),
                                     msg_id=f.get("id", 0))
+            resolution = f.get("resolution", "?")
+            update_download(dl_id, resolution=resolution)
             if existing:
                 update_download(dl_id, status="skipped", media_path=str(existing.file_path))
                 skipped += 1

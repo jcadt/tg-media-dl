@@ -362,6 +362,32 @@ async def api_run_job(request: Request, job_id: int):
     return {"status": "started"}
 
 
+@app.post("/api/downloads/{dl_id}/toggle")
+async def api_toggle_download(request: Request, dl_id: int):
+    """Toggle a download between pending and skipped."""
+    require_admin(request)
+    from .db import get_conn
+    with get_conn() as conn:
+        row = conn.execute("SELECT id, status FROM downloads WHERE id=?", (dl_id,)).fetchone()
+        if not row:
+            return {"error": "Not found"}
+        new_status = "skipped" if row["status"] == "pending" else "pending"
+        conn.execute("UPDATE downloads SET status=? WHERE id=?", (new_status, dl_id))
+    return {"dl_id": dl_id, "status": new_status}
+
+
+@app.post("/api/downloads/{dl_id}/select")
+async def api_select_download(request: Request, dl_id: int,
+                                selected: str = Form("1")):
+    """Mark a download as selected (pending) or unselected (skipped)."""
+    require_admin(request)
+    from .db import get_conn
+    status = "pending" if selected == "1" else "skipped"
+    with get_conn() as conn:
+        conn.execute("UPDATE downloads SET status=? WHERE id=?", (status, dl_id))
+    return {"dl_id": dl_id, "status": status}
+
+
 @app.get("/api/series")
 async def api_series(request: Request):
     user = get_current_user(request)

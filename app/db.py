@@ -93,6 +93,14 @@ def init_db() -> None:
             );
         """)
 
+    # ── Schema migrations ────────────────────────────────────
+    with get_conn() as conn:
+        # Add resolution column to downloads if missing (v2)
+        try:
+            conn.execute("ALTER TABLE downloads ADD COLUMN resolution TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # Already exists
+
 
 # ── User helpers ───────────────────────────────────────────
 

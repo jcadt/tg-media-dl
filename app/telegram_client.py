@@ -7,12 +7,65 @@ from pathlib import Path
 from typing import Callable
 
 from telethon import TelegramClient
-from telethon.tl.types import Message, InputMessagesFilterDocument
+from telethon.tl.types import (Message, InputMessagesFilterDocument,
+                                DocumentAttributeVideo)
 
 from .config import settings
 from .db import save_session, load_session
 
 SESSION_FILE = settings.DATA_DIR / "tg_series.session"
+
+
+RES_RE = re.compile(r'(\d{3,4})\s*[pP]|\b4[Kk]\b|\bHD\b|\bFHD\b|\bUHD\b')
+
+
+def _detect_resolution(msg: Message, fname: str) -> str:
+    """Extract resolution label from video attributes or filename."""
+    # Try Telegram video attributes first (most accurate)
+    if msg.media and hasattr(msg.media, 'document'):
+        for attr in msg.media.document.attributes:
+            if hasattr(attr, 'w') and hasattr(attr, 'h'):
+                w, h = attr.w, attr.h
+                if w >= 3840 or h >= 2160:
+                    label = "4K"
+                elif w >= 1920 or h >= 1080:
+                    label = "1080p"
+                elif w >= 1280 or h >= 720:
+                    label = "720p"
+                elif w >= 854 or h >= 480:
+                    label = "480p"
+                else:
+                    label = f"{h}p"
+                return label
+
+    # Fallback: detect from filename
+    fname_lower = fname.lower()
+    if '4k' in fname_lower or '2160p' in fname_lower or 'uhd' in fname_lower:
+        return "4K"
+    m = RES_RE.search(fname)
+    if m:
+        val = m.group(0).upper()
+        if val == '4K':
+            return '4K'
+        if val in ('HD',):
+            return 'HD'
+        if val in ('FHD',):
+            return '1080p'
+        if val in ('UHD',):
+            return '4K'
+        # Matched digits like 720, 1080, 480
+        digits = re.search(r'(\d{3,4})', val)
+        if digits:
+            return f"{digits.group(1)}p"
+
+    # Check size for rough estimate
+    size = msg.file.size if msg.file else 0
+    if size > 2_000_000_000:  # >2GB likely 1080p+
+        return "≈1080p+"
+    if size > 800_000_000:    # >800MB likely 720p+
+        return "≈720p+"
+
+    return "?"
 
 
 def _api_ready() -> bool:
@@ -84,6 +137,7 @@ async def search_media(client: TelegramClient, channel_id: int,
             "file_size": msg.file.size if msg.file else 0,
             "mime_type": msg.file.mime_type if msg.file else None,
             "message": msg.message or "",
+            "resolution": _detect_resolution(msg, fname),
         })
         if progress_cb:
             progress_cb(i + 1, len(messages))
