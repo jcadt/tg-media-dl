@@ -270,18 +270,26 @@ async def api_connect(request: Request, phone: str = Form(...)):
 @app.get("/api/status")
 async def api_status(request: Request):
     user = get_current_user(request)
-    connected = engine._tg_client is not None and engine._tg_client.is_connected()
+    is_admin = user and user.get("role") == "admin"
+
+    # Only admins see Telegram connection info
+    connected = False
     me = None
-    if connected:
-        try:
-            me_obj = await engine._tg_client.get_me()
-            me = {"first_name": me_obj.first_name, "username": me_obj.username}
-        except Exception:
-            pass
+    running = False
+    if is_admin:
+        connected = engine._tg_client is not None and engine._tg_client.is_connected()
+        running = engine.is_running
+        if connected:
+            try:
+                me_obj = await engine._tg_client.get_me()
+                me = {"first_name": me_obj.first_name, "username": me_obj.username}
+            except Exception:
+                pass
+
     return {
         "connected": connected,
         "user": me,
-        "running": engine.is_running,
+        "running": running,
         "auth_enabled": settings.AUTH_ENABLED,
         "current_user": user,
         "downloads_dir": str(settings.DOWNLOADS_DIR),
@@ -426,7 +434,8 @@ async def api_check_movie(request: Request, query: str = Form(...)):
 
 @app.get("/api/channel-config")
 async def api_channel_config(request: Request):
-    """Get saved channel preferences for series and movies."""
+    """Get saved channel preferences for series and movies (admin only)."""
+    require_admin(request)
     return {
         "series": get_setting("channel_series", ""),
         "movie": get_setting("channel_movie", ""),
