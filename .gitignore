@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+*.session
+data/
+downloads/
+tg_series.session
+.DS_Store

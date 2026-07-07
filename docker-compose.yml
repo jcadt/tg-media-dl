@@ -1,0 +1,25 @@
+services:
+  tg-media-dl:
+    build: .
+    container_name: tg-media-dl
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - TG_API_ID=${TG_API_ID:-0}
+      - TG_API_HASH=${TG_API_HASH:-}
+      - DOWNLOADS_DIR=/downloads
+      - MEDIA_DIR=/media
+      - DATA_DIR=/data
+    volumes:
+      # Ruta temporal de descargas (debe ser rápida, ejemplo SSD local)
+      - ./downloads:/downloads
+      # Ruta a la biblioteca de medios (Jellyfin, etc.) — debe tener permisos de escritura
+      - /mnt/poolext/media:/media
+      # Datos persistentes (sesiones Telegram, BD, config)
+      - ./data:/data
+    # Opcional: si el contenedor necesita más memoria para descargas grandes
+    deploy:
+      resources:
+        limits:
+          memory: 2G
