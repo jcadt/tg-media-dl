@@ -338,14 +338,10 @@ async function startScan() {
   if (!query) { toast('Escribe un nombre', 'error'); return; }
 
   if (channelId === '__all__') {
-    // Scan all assigned channels for this type
     const channels = getAssignedChannels(kind);
-    toast(`Escaneando ${channels.length} canales para "${query}"...`, 'info');
-    for (const chId of channels) {
-      const div = document.getElementById('scan-result');
-      div.innerHTML = `🔍 Escaneando canal ${chId}...`;
-      await doScan(chId, query, kind);
-    }
+    if (!channels.length) { toast('No hay canales asignados para este tipo', 'error'); return; }
+    toast(`Escaneando ${channels.length} canales en un solo job...`, 'info');
+    await doScanAll(channels.join(','), query, kind);
     return;
   }
 
@@ -360,6 +356,7 @@ function getAssignedChannels(kind) {
 
 async function doScan(channelId, query, kind) {
   const div = document.getElementById('scan-result');
+  div.innerHTML = '🔍 Escaneando...';
   try {
     const r = await fetch('/api/scan', {
       method: 'POST',
@@ -370,6 +367,24 @@ async function doScan(channelId, query, kind) {
     if (data.error) { toast(data.error, 'error'); div.innerHTML = ''; return; }
     div.innerHTML = `✅ Job #${data.job_id} creado`;
     toast(`Job #${data.job_id} iniciado`, 'success');
+    refreshJobs();
+    pollJob(data.job_id);
+  } catch (e) { toast('Error: ' + e, 'error'); div.innerHTML = ''; }
+}
+
+async function doScanAll(channelIds, query, kind) {
+  const div = document.getElementById('scan-result');
+  div.innerHTML = '🔍 Escaneando múltiples canales...';
+  try {
+    const r = await fetch('/api/scan-all', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `channel_ids=${encodeURIComponent(channelIds)}&query=${encodeURIComponent(query)}&kind=${kind}`,
+    });
+    const data = await r.json();
+    if (data.error) { toast(data.error, 'error'); div.innerHTML = ''; return; }
+    div.innerHTML = `✅ Job #${data.job_id} (${data.channels} canales)`;
+    toast(`Job #${data.job_id}: ${data.channels} canales fusionados`, 'success');
     refreshJobs();
     pollJob(data.job_id);
   } catch (e) { toast('Error: ' + e, 'error'); div.innerHTML = ''; }
@@ -404,6 +419,19 @@ async function showResults(jobId, data) {
     <span class="badge badge-${job.status === 'done' ? 'ok' : job.status === 'error' ? 'err' : 'warn'}">${job.status}</span>
     ${seriesName ? `<span style="font-size:0.8rem;color:#8b949e"> → ${seriesName}</span>` : ''}
   </div>`;
+
+  // Disk space info
+  const disk = data.disk;
+  if (disk && disk.free_gb > 0) {
+    const pendingBytes = data.total_pending_bytes || 0;
+    const needGb = (pendingBytes / Math.pow(1024, 3)).toFixed(1);
+    html += '<div style="font-size:0.8rem;color:#8b949e;margin-bottom:8px">'
+      + disk.free_gb + 'GB libres de ' + disk.total_gb + 'GB'
+      + (pendingBytes > disk.free
+        ? ' <span class="status-error">\u26a0\ufe0f Necesita ' + needGb + 'GB</span>'
+        : pendingBytes > 0 ? ' \u00b7 ' + needGb + 'GB necesarios \u2705' : '')
+      + '</div>';
+  }
 
   if (job.status === 'done' && job.error_msg && !downloads.length) {
     html += `<p class="status-error">${job.error_msg}</p>`;

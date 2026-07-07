@@ -321,10 +321,34 @@ async def api_scan(request: Request, channel_id: int = Form(...),
     channel_name = next((c["name"] for c in channels if c["id"] == channel_id), str(channel_id))
     job_id = create_job(kind, query, channel_id, channel_name)
     if kind == "series":
-        asyncio.ensure_future(engine.scan_series(job_id, channel_id, query))
+        asyncio.ensure_future(engine.scan_series(job_id, [channel_id], query))
     else:
-        asyncio.ensure_future(engine.scan_movie(job_id, channel_id, query))
+        asyncio.ensure_future(engine.scan_movie(job_id, [channel_id], query))
     return {"job_id": job_id, "status": "scanning"}
+
+
+@app.post("/api/scan-all")
+async def api_scan_all(request: Request, channel_ids: str = Form(...),
+                        query: str = Form(...), kind: str = Form("series")):
+    """Scan multiple channels and merge results into one job."""
+    require_admin(request)
+    if not engine._tg_client or not engine._tg_client.is_connected():
+        return {"error": "Not connected"}
+
+    ids = [int(x.strip()) for x in channel_ids.split(",") if x.strip()]
+    if not ids:
+        return {"error": "No channel IDs provided"}
+
+    channels = await get_dialogs(engine._tg_client)
+    channels_map = {c["id"]: c["name"] for c in channels}
+
+    job_id = create_job(kind, query, ids[0],
+                        channels_map.get(ids[0], str(ids[0])))
+    if kind == "series":
+        asyncio.ensure_future(engine.scan_series(job_id, ids, query, channels_map))
+    else:
+        asyncio.ensure_future(engine.scan_movie(job_id, ids, query, channels_map))
+    return {"job_id": job_id, "status": "scanning", "channels": len(ids)}
 
 
 @app.get("/api/jobs")
@@ -344,7 +368,12 @@ async def api_job_detail(request: Request, job_id: int):
     except (json.JSONDecodeError, TypeError):
         job["progress"] = {}
     downloads = get_job_downloads(job_id)
-    return {"job": job, "downloads": downloads}
+    disk = engine.get_disk_info(settings.MEDIA_DIR)
+    total_pending = sum(
+        d.get("file_size", 0) for d in downloads if d["status"] == "pending"
+    )
+    return {"job": job, "downloads": downloads, "disk": disk,
+            "total_pending_bytes": total_pending}
 
 
 @app.post("/api/jobs/{job_id}/run")

@@ -100,6 +100,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE downloads ADD COLUMN resolution TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # Already exists
+        # Add channel_id column to downloads for multi-channel support (v3)
+        try:
+            conn.execute("ALTER TABLE downloads ADD COLUMN channel_id INTEGER DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass  # Already exists
 
 
 # ── User helpers ───────────────────────────────────────────
