@@ -86,6 +86,11 @@ def init_db() -> None:
                 error_msg   TEXT,
                 created_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
         """)
 
 
@@ -261,3 +266,27 @@ def get_job_downloads(job_id: int) -> list[dict]:
             "SELECT * FROM downloads WHERE job_id=? ORDER BY id", (job_id,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── App settings helpers ────────────────────────────────────
+
+def set_setting(key: str, value: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+
+
+def get_setting(key: str, default: str = "") -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key=?", (key,)
+        ).fetchone()
+    return row["value"] if row else default
+
+
+def get_all_settings() -> dict[str, str]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+    return {r["key"]: r["value"] for r in rows}

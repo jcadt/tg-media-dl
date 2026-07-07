@@ -120,20 +120,34 @@
 
   <!-- Main grid -->
   <div class="grid-2">
+    <!-- Channel config -->
     <div class="card">
-      <div class="card-title">📡 Canales</div>
-      <select id="channel-select">
-        <option value="">-- Selecciona un canal --</option>
+      <div class="card-title">📡 Configuración de canales</div>
+      <label for="channel-series">📺 Canal para series</label>
+      <select id="channel-series">
+        <option value="">-- Sin asignar --</option>
+      </select>
+      <label for="channel-movie">🎬 Canal para películas</label>
+      <select id="channel-movie">
+        <option value="">-- Sin asignar --</option>
       </select>
       <div id="channel-info" style="font-size:0.8rem;color:#8b949e;margin-bottom:8px"></div>
-      <button class="btn btn-sm" onclick="loadChannels()">🔄 Recargar canales</button>
+      <div class="btn-group">
+        <button class="btn btn-sm btn-primary" onclick="saveChannelConfig()">💾 Guardar configuración</button>
+        <button class="btn btn-sm" onclick="loadChannels()">🔄 Recargar</button>
+      </div>
+      <div id="channel-save-result" style="font-size:0.8rem;margin-top:8px"></div>
     </div>
     <div class="card">
       <div class="card-title">🔍 Buscar</div>
       <div class="radio-group">
-        <label><input type="radio" name="kind" value="series" checked> 📺 Serie</label>
-        <label><input type="radio" name="kind" value="movie"> 🎬 Película</label>
+        <label><input type="radio" name="kind" value="series" checked onchange="updateChannelSelect()"> 📺 Serie</label>
+        <label><input type="radio" name="kind" value="movie" onchange="updateChannelSelect()"> 🎬 Película</label>
       </div>
+      <label for="channel-scan">Canal donde buscar</label>
+      <select id="channel-scan">
+        <option value="">-- Selecciona un canal --</option>
+      </select>
       <label for="query">Nombre de la serie/película</label>
       <input type="text" id="query" name="query" placeholder="Ej: After Life">
       <button class="btn btn-primary" onclick="startScan()">🔍 Buscar y comparar</button>
@@ -193,37 +207,87 @@ async function checkStatus() {
   try {
     const r = await fetch('/api/status');
     const data = await r.json();
-    const badge = document.getElementById('status-badge');
     if (data.connected) {
       document.getElementById('connect-panel').style.opacity = '0.5';
       loadChannels();
     } else {
       document.getElementById('connect-panel').style.opacity = '1';
     }
+    // Load channel config
+    try {
+      const cr = await fetch('/api/channel-config');
+      const cd = await cr.json();
+      if (cd.series) window._cfgSeries = cd.series;
+      if (cd.movie) window._cfgMovie = cd.movie;
+    } catch {}
   } catch {}
 }
 
 // ── Channels ────────────────────────────────────────────
 async function loadChannels() {
-  const sel = document.getElementById('channel-select');
-  sel.innerHTML = '<option>Cargando...</option>';
+  const selects = ['channel-series', 'channel-movie', 'channel-scan'];
+  for (const id of selects) {
+    document.getElementById(id).innerHTML = '<option>Cargando...</option>';
+  }
   try {
     const r = await fetch('/api/channels');
     const data = await r.json();
-    if (data.error) { sel.innerHTML = '<option value="">Error: ' + data.error + '</option>'; return; }
-    sel.innerHTML = '<option value="">-- Selecciona un canal --</option>';
-    for (const ch of data.channels) {
-      const opt = document.createElement('option'); opt.value = ch.id;
-      opt.textContent = `${ch.kind === 'channel' ? '📢' : '💬'} ${ch.name}`;
-      sel.appendChild(opt);
+    if (data.error) {
+      for (const id of selects) {
+        document.getElementById(id).innerHTML = '<option value="">Error: ' + data.error + '</option>';
+      }
+      return;
+    }
+    for (const id of selects) {
+      const sel = document.getElementById(id);
+      sel.innerHTML = '<option value="">' + (id === 'channel-scan' ? '-- Selecciona un canal --' : '-- Sin asignar --') + '</option>';
+      for (const ch of data.channels) {
+        const opt = document.createElement('option'); opt.value = ch.id;
+        opt.textContent = `${ch.kind === 'channel' ? '📢' : '💬'} ${ch.name}`;
+        sel.appendChild(opt);
+      }
     }
     document.getElementById('channel-info').textContent = `${data.channels.length} canales`;
+    // Restore saved config
+    if (window._cfgSeries) document.getElementById('channel-series').value = window._cfgSeries;
+    if (window._cfgMovie) document.getElementById('channel-movie').value = window._cfgMovie;
+    updateChannelSelect();
   } catch {}
+}
+
+// ── Channel config ──────────────────────────────────────
+function updateChannelSelect() {
+  const kind = document.querySelector('input[name="kind"]:checked').value;
+  const cfgId = kind === 'series' ? window._cfgSeries : window._cfgMovie;
+  const scanSel = document.getElementById('channel-scan');
+  if (cfgId && scanSel.querySelector(`option[value="${cfgId}"]`)) {
+    scanSel.value = cfgId;
+  }
+}
+
+async function saveChannelConfig() {
+  const series = document.getElementById('channel-series').value;
+  const movie = document.getElementById('channel-movie').value;
+  const result = document.getElementById('channel-save-result');
+  try {
+    const r = await fetch('/api/channel-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `series=${series}&movie=${movie}`,
+    });
+    const data = await r.json();
+    window._cfgSeries = data.series;
+    window._cfgMovie = data.movie;
+    result.innerHTML = '✅ Configuración guardada';
+    updateChannelSelect();
+    setTimeout(() => result.innerHTML = '', 3000);
+    toast('Configuración de canales guardada', 'success');
+  } catch (e) { result.innerHTML = '❌ Error: ' + e; }
 }
 
 // ── Scan ────────────────────────────────────────────────
 async function startScan() {
-  const channelId = document.getElementById('channel-select').value;
+  const channelId = document.getElementById('channel-scan').value;
   const query = document.getElementById('query').value.trim();
   const kind = document.querySelector('input[name="kind"]:checked').value;
   if (!channelId) { toast('Selecciona un canal', 'error'); return; }

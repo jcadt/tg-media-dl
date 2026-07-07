@@ -23,12 +23,14 @@ from .db import (
     get_job,
     get_job_downloads,
     get_request,
+    get_setting,
     init_db,
     list_jobs,
     list_pending_requests,
     list_requests,
     load_session,
     save_session,
+    set_setting,
     update_job,
     update_request,
     upsert_user,
@@ -228,6 +230,8 @@ async def admin_index(request: Request):
         "jobs": jobs,
         "pending_requests": pending_requests,
         "connected": connected,
+        "channel_series": get_setting("channel_series", ""),
+        "channel_movie": get_setting("channel_movie", ""),
         "series_paths": [str(p) for p in settings.SERIES_PATHS],
         "movies_paths": [str(p) for p in settings.MOVIES_PATHS],
         "downloads_dir": str(settings.DOWNLOADS_DIR),
@@ -414,6 +418,30 @@ async def api_check_movie(request: Request, query: str = Form(...)):
         "year": movie.year,
         "path": str(movie.file_path),
     }
+
+
+# ══════════════════════════════════════════════════════════════
+#  CHANNEL CONFIG — admin channel preferences
+# ══════════════════════════════════════════════════════════════
+
+@app.get("/api/channel-config")
+async def api_channel_config(request: Request):
+    """Get saved channel preferences for series and movies."""
+    return {
+        "series": get_setting("channel_series", ""),
+        "movie": get_setting("channel_movie", ""),
+    }
+
+
+@app.post("/api/channel-config")
+async def api_save_channel_config(request: Request,
+                                    series: str = Form(""),
+                                    movie: str = Form("")):
+    """Save which channels to use for series and movies."""
+    require_admin(request)
+    set_setting("channel_series", series)
+    set_setting("channel_movie", movie)
+    return {"status": "saved", "series": series, "movie": movie}
 
 
 # ══════════════════════════════════════════════════════════════
