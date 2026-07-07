@@ -559,7 +559,7 @@ function selectBestResolutions(jobId) {
     }
   }
 
-  const resOrder = ['4K', '1080p', '720p', '480p', '360p', '?'];
+  const resOrder = ['1080p', '4K', '720p', '480p', '360p', '?'];
   for (const [ep, files] of Object.entries(episodes)) {
     if (files.length <= 1) continue;
     files.sort((a, b) => {
