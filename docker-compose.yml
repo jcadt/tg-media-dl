@@ -6,8 +6,22 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # ── Telegram API ─────────────────────────────────────
       - TG_API_ID=${TG_API_ID:-0}
       - TG_API_HASH=${TG_API_HASH:-}
+
+      # ── Multi-user auth (Authentik OIDC) ─────────────────
+      - AUTH_ENABLED=${AUTH_ENABLED:-0}
+      - AUTHENTIK_DOMAIN=${AUTHENTIK_DOMAIN:-}
+      - AUTHENTIK_CLIENT_ID=${AUTHENTIK_CLIENT_ID:-}
+      - AUTHENTIK_CLIENT_SECRET=${AUTHENTIK_CLIENT_SECRET:-}
+      - ADMIN_EMAILS=${ADMIN_EMAILS:-}
+
+      # ── URL de la app (para redirect OIDC) ───────────────
+      - APP_URL=${APP_URL:-http://localhost:8000}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+
+      # ── Volumes ──────────────────────────────────────────
       - DOWNLOADS_DIR=/downloads
       - MEDIA_DIR=/media
       - DATA_DIR=/data
@@ -18,7 +32,6 @@ services:
       - /mnt/poolext/media:/media
       # Datos persistentes (sesiones Telegram, BD, config)
       - ./data:/data
-    # Opcional: si el contenedor necesita más memoria para descargas grandes
     deploy:
       resources:
         limits:

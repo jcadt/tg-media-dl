@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TG Media Downloader — Admin</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117; color: #c9d1d9; min-height: 100vh;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 0; border-bottom: 1px solid #30363d; margin-bottom: 24px;
+  }
+  h1 { font-size: 1.5rem; color: #f0f6fc; }
+  h2 { font-size: 1.2rem; color: #f0f6fc; margin-bottom: 12px; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600;
+  }
+  .badge-ok { background: #1a7f37; color: #fff; }
+  .badge-err { background: #da3633; color: #fff; }
+  .badge-warn { background: #9e6a03; color: #fff; }
+  .badge-info { background: #1f6feb; color: #fff; }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card-title { font-size: 0.9rem; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 0.85rem; color: #8b949e; margin-bottom: 4px; }
+  select, input[type="text"], input[type="tel"] {
+    width: 100%; padding: 8px 12px; background: #0d1117; border: 1px solid #30363d;
+    border-radius: 6px; color: #c9d1d9; font-size: 0.9rem; margin-bottom: 12px;
+  }
+  select:focus, input:focus { outline: none; border-color: #58a6ff; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 6px; border: 1px solid #30363d;
+    background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 0.85rem;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #30363d; }
+  .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-danger { background: #da3633; border-color: #f85149; color: #fff; }
+  .btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+  .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { text-align: left; padding: 8px; color: #8b949e; border-bottom: 1px solid #21262d; font-weight: 600; }
+  td { padding: 8px; border-bottom: 1px solid #21262d; }
+  .status-pending { color: #d29922; }
+  .status-scanning { color: #58a6ff; }
+  .status-downloading { color: #58a6ff; }
+  .status-done { color: #3fb950; }
+  .status-error { color: #f85149; }
+  .status-skipped { color: #8b949e; }
+  .status-approved { color: #3fb950; }
+  .status-rejected { color: #f85149; }
+  .progress-bar {
+    width: 100%; height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin: 8px 0;
+  }
+  .progress-fill { height: 100%; background: #238636; border-radius: 3px; transition: width 0.3s; }
+  .empty { color: #8b949e; text-align: center; padding: 40px; font-style: italic; }
+  .radio-group { display: flex; gap: 16px; margin-bottom: 12px; }
+  .radio-group label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .user-info { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+  .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 12px;
+    padding: 24px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .modal h3 { margin-bottom: 16px; }
+  #toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; }
+  .toast { padding: 12px 20px; border-radius: 8px; margin-bottom: 8px; font-size: 0.85rem; animation: slideIn 0.3s; }
+  .toast-success { background: #1a7f37; color: #fff; }
+  .toast-error { background: #da3633; color: #fff; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📥 TG Media Downloader</h1>
+    <div class="user-info">
+      {% if user %}
+      <span>{{ user.name or user.email }}</span>
+      <span class="badge badge-info">admin</span>
+      <a href="/auth/logout" class="btn btn-sm">Cerrar sesión</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- Connection panel -->
+  <div class="card" id="connect-panel">
+    <div class="card-title">🔗 Conexión Telegram</div>
+    <form hx-post="/api/connect" hx-target="#connect-result" hx-swap="innerHTML"
+          hx-on::after-request="if(event.detail.successful) this.reset()">
+      <label for="phone">Nº de teléfono (ej. +34600123456)</label>
+      <input type="tel" id="phone" name="phone" placeholder="+34..." required>
+      <button type="submit" class="btn btn-primary">Conectar</button>
+    </form>
+    <div id="connect-result" style="margin-top:8px"></div>
+    <button class="btn btn-sm" style="margin-top:8px" onclick="checkStatus()">🔁 Verificar estado</button>
+  </div>
+
+  <!-- Pending requests alerts -->
+  <div class="card" id="requests-alert" style="display:none">
+    <div class="card-title" style="display:flex;justify-content:space-between">
+      <span>🕐 Solicitudes pendientes</span>
+      <button class="btn btn-sm" onclick="loadPendingRequests()">🔄</button>
+    </div>
+    <div id="pending-requests-list"></div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">📡 Canales</div>
+      <select id="channel-select">
+        <option value="">-- Selecciona un canal --</option>
+      </select>
+      <div id="channel-info" style="font-size:0.8rem;color:#8b949e;margin-bottom:8px"></div>
+      <button class="btn btn-sm" onclick="loadChannels()">🔄 Recargar canales</button>
+    </div>
+    <div class="card">
+      <div class="card-title">🔍 Buscar</div>
+      <div class="radio-group">
+        <label><input type="radio" name="kind" value="series" checked> 📺 Serie</label>
+        <label><input type="radio" name="kind" value="movie"> 🎬 Película</label>
+      </div>
+      <label for="query">Nombre de la serie/película</label>
+      <input type="text" id="query" name="query" placeholder="Ej: After Life">
+      <button class="btn btn-primary" onclick="startScan()">🔍 Buscar y comparar</button>
+      <div id="scan-result" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="card" id="results-card" style="display:none">
+    <div class="card-title">📋 Resultados</div>
+    <div id="results-content"></div>
+  </div>
+
+  <!-- Requests queue -->
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between">
+      <span>📋 Solicitudes de usuarios</span>
+      <button class="btn btn-sm" hx-get="/api/requests" hx-target="#requests-body" hx-swap="innerHTML">🔄</button>
+    </div>
+    <div id="requests-container">
+      <table>
+        <thead><tr><th>ID</th><th>Usuario</th><th>Tipo</th><th>Búsqueda</th><th>Estado</th><th>Acción</th></tr></thead>
+        <tbody id="requests-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Jobs queue -->
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between">
+      <span>⚙️ Trabajos</span>
+      <button class="btn btn-sm" hx-get="/api/jobs" hx-target="#jobs-body" hx-swap="innerHTML">🔄</button>
+    </div>
+    <table>
+      <thead><tr><th>ID</th><th>Tipo</th><th>Búsqueda</th><th>Estado</th><th>Progreso</th><th>Acción</th></tr></thead>
+      <tbody id="jobs-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Library -->
+  <div class="card">
+    <div class="card-title">📚 Biblioteca ({{ series_paths|join(', ') }})</div>
+    <div id="library-content">
+      <button class="btn btn-sm" hx-get="/api/series" hx-target="#library-content" hx-swap="innerHTML">📖 Cargar series</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Init ────────────────────────────────────────────────
+checkStatus();
+setInterval(refreshJobs, 5000);
+setInterval(loadPendingRequests, 10000);
+
+// ── Status ──────────────────────────────────────────────
+async function checkStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const data = await r.json();
+    const badge = document.getElementById('status-badge');
+    if (data.connected) {
+      document.getElementById('connect-panel').style.opacity = '0.5';
+      loadChannels();
+    } else {
+      document.getElementById('connect-panel').style.opacity = '1';
+    }
+  } catch {}
+}
+
+// ── Channels ────────────────────────────────────────────
+async function loadChannels() {
+  const sel = document.getElementById('channel-select');
+  sel.innerHTML = '<option>Cargando...</option>';
+  try {
+    const r = await fetch('/api/channels');
+    const data = await r.json();
+    if (data.error) { sel.innerHTML = '<option value="">Error: ' + data.error + '</option>'; return; }
+    sel.innerHTML = '<option value="">-- Selecciona un canal --</option>';
+    for (const ch of data.channels) {
+      const opt = document.createElement('option'); opt.value = ch.id;
+      opt.textContent = `${ch.kind === 'channel' ? '📢' : '💬'} ${ch.name}`;
+      sel.appendChild(opt);
+    }
+    document.getElementById('channel-info').textContent = `${data.channels.length} canales`;
+  } catch {}
+}
+
+// ── Scan ────────────────────────────────────────────────
+async function startScan() {
+  const channelId = document.getElementById('channel-select').value;
+  const query = document.getElementById('query').value.trim();
+  const kind = document.querySelector('input[name="kind"]:checked').value;
+  if (!channelId) { toast('Selecciona un canal', 'error'); return; }
+  if (!query) { toast('Escribe un nombre', 'error'); return; }
+  const div = document.getElementById('scan-result');
+  div.innerHTML = '🔍 Escaneando...';
+  try {
+    const r = await fetch('/api/scan', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `channel_id=${channelId}&query=${encodeURIComponent(query)}&kind=${kind}`,
+    });
+    const data = await r.json();
+    if (data.error) { toast(data.error, 'error'); div.innerHTML = ''; return; }
+    div.innerHTML = `✅ Job #${data.job_id} creado`;
+    toast(`Job #${data.job_id} iniciado`, 'success');
+    refreshJobs();
+    pollJob(data.job_id);
+  } catch (e) { toast('Error: ' + e, 'error'); div.innerHTML = ''; }
+}
+
+async function pollJob(jobId) {
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`);
+      const data = await res.json();
+      if (['done','error','pending'].includes(data.job.status)) {
+        showResults(jobId, data);
+        refreshJobs(); return;
+      }
+    } catch {}
+  }
+}
+
+async function showResults(jobId, data) {
+  const card = document.getElementById('results-card');
+  const content = document.getElementById('results-content');
+  card.style.display = 'block';
+  const job = data.job; const downloads = data.downloads || [];
+  let html = `<div style="margin-bottom:8px"><strong>${job.query}</strong> — ${job.kind} <span class="badge badge-${job.status === 'done' ? 'ok' : job.status === 'error' ? 'err' : 'warn'}">${job.status}</span></div>`;
+  if (job.status === 'done' && job.error_msg && !downloads.length) html += `<p class="status-error">${job.error_msg}</p>`;
+  if (downloads.length) {
+    const pending = downloads.filter(d => d.status === 'pending').length;
+    const skipped = downloads.filter(d => d.status === 'skipped').length;
+    const done = downloads.filter(d => d.status === 'done').length;
+    html += `<div style="margin-bottom:12px;font-size:0.85rem;color:#8b949e">${downloads.length} archivos · ${done} listos · ${skipped} existentes · ${pending} pendientes</div>`;
+    if (pending > 0) {
+      html += `<button class="btn btn-primary btn-sm" hx-post="/api/jobs/${jobId}/run" hx-swap="none" hx-on::after-request="refreshJobs();pollJob(${jobId})">▶️ Descargar ${pending} pendientes</button>`;
+    }
+    html += `<table style="margin-top:12px"><thead><tr><th>Archivo</th><th>Tamaño</th><th>Estado</th><th>Destino</th></tr></thead><tbody>`;
+    for (const d of downloads) {
+      const size = d.file_size ? (d.file_size / 1024 / 1024).toFixed(1) + ' MB' : '?';
+      const mediaPath = d.media_path ? d.media_path.split('/').slice(-3).join('/') : '-';
+      html += `<tr><td style="max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.file_name}</td><td>${size}</td><td class="status-${d.status}">${d.status === 'skipped' ? '✅ Ya existe' : d.status}</td><td style="font-size:0.75rem">${mediaPath}</td></tr>`;
+    }
+    html += '</tbody></table>';
+  }
+  content.innerHTML = html;
+}
+
+// ── Requests ────────────────────────────────────────────
+async function loadPendingRequests() {
+  try {
+    const r = await fetch('/api/requests/pending');
+    const data = await r.json();
+    const list = document.getElementById('pending-requests-list');
+    const alert = document.getElementById('requests-alert');
+    if (!data.requests || !data.requests.length) { alert.style.display = 'none'; return; }
+    alert.style.display = 'block';
+    let html = '';
+    for (const req of data.requests) {
+      html += `<div class="log-entry" style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #21262d">
+        <div><strong>${req.query}</strong> (${req.kind}) — <span class="badge badge-warn">pendiente</span><br>
+        <span style="font-size:0.8rem;color:#8b949e">${req.user_name || req.user_email}</span></div>
+        <div style="display:flex;gap:4px">
+          <select id="channel-req-${req.id}" style="width:auto;margin:0;font-size:0.75rem;padding:4px">
+            <option value="">Selecciona canal</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="approveReq(${req.id})">✅ Aprobar</button>
+          <button class="btn btn-sm btn-danger" onclick="rejectReq(${req.id})">❌ Rechazar</button>
+        </div>
+      </div>`;
+    }
+    list.innerHTML = html;
+    // Load channels into selects
+    try {
+      const cr = await fetch('/api/channels'); const cd = await cr.json();
+      if (cd.channels) {
+        document.querySelectorAll('[id^="channel-req-"]').forEach(sel => {
+          sel.innerHTML = '<option value="">Sin canal</option>';
+          cd.channels.forEach(ch => { const o = document.createElement('option'); o.value = ch.id; o.textContent = ch.name; sel.appendChild(o); });
+        });
+      }
+    } catch {}
+  } catch {}
+}
+
+async function approveReq(reqId) {
+  const sel = document.getElementById(`channel-req-${reqId}`);
+  const channelId = sel ? sel.value : '';
+  try {
+    const r = await fetch(`/api/requests/${reqId}/approve`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `channel_id=${channelId || ''}`,
+    });
+    const data = await r.json();
+    if (data.job_id) toast(`Solicitud #${reqId} aprobada. Job #${data.job_id}`, 'success');
+    else toast(`Error: ${data.error}`, 'error');
+    loadPendingRequests(); refreshJobs();
+  } catch (e) { toast('Error: ' + e, 'error'); }
+}
+
+async function rejectReq(reqId) {
+  const msg = prompt('Motivo del rechazo (opcional):');
+  try {
+    const r = await fetch(`/api/requests/${reqId}/reject`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `message=${encodeURIComponent(msg || '')}`,
+    });
+    toast(`Solicitud #${reqId} rechazada`, 'success');
+    loadPendingRequests(); refreshRequests();
+  } catch (e) { toast('Error: ' + e, 'error'); }
+}
+
+async function refreshRequests() {
+  const body = document.getElementById('requests-body');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/requests'); const data = await r.json();
+    if (!data.requests || !data.requests.length) { body.innerHTML = '<tr><td colspan="6" class="empty">Sin solicitudes</td></tr>'; return; }
+    body.innerHTML = data.requests.map(r => `<tr>
+      <td>${r.id}</td><td>${(r.user_name || r.user_email).substring(0,20)}</td>
+      <td>${r.kind === 'series' ? '📺' : '🎬'}</td>
+      <td>${r.query}</td>
+      <td class="status-${r.status}">${r.status}</td>
+      <td>${r.status === 'pending' ? '<button class="btn btn-sm btn-primary" onclick="approveReq('+r.id+')">Aprobar</button>' : r.message || ''}</td>
+    </tr>`).join('');
+  } catch {}
+}
+
+// ── Jobs ────────────────────────────────────────────────
+async function refreshJobs() {
+  const body = document.getElementById('jobs-body');
+  if (!body) return;
+  try {
+    const r = await fetch('/api/jobs'); const data = await r.json();
+    if (!data.jobs || !data.jobs.length) { body.innerHTML = '<tr><td colspan="6" class="empty">Sin trabajos</td></tr>'; return; }
+    body.innerHTML = data.jobs.map(j => `<tr>
+      <td>${j.id}</td><td>${j.kind === 'series' ? '📺' : '🎬'}</td>
+      <td>${(j.query || '').substring(0,25)}</td>
+      <td class="status-${j.status}">${j.status}</td>
+      <td>${j.completed_files || 0}/${j.total_files || 0}</td>
+      <td>${j.status === 'pending' ? `<button class="btn btn-sm btn-primary" hx-post="/api/jobs/${j.id}/run" hx-swap="none" hx-on::after-request="refreshJobs()">▶️</button>` : ''}
+      <button class="btn btn-sm" hx-get="/api/jobs/${j.id}" hx-target="#job-detail-${j.id}" hx-swap="innerHTML">📄</button></td>
+    </tr><tr id="job-detail-${j.id}"></tr>`).join('');
+  } catch {}
+}
+
+// ── Toast ───────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const c = document.getElementById('toast-container') || (() => { const el = document.createElement('div'); el.id = 'toast-container'; document.body.appendChild(el); return el; })();
+  const t = document.createElement('div'); t.className = `toast toast-${type}`; t.textContent = msg; c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+document.addEventListener('DOMContentLoaded', () => { const el = document.createElement('div'); el.id = 'toast-container'; document.body.appendChild(el); });
+</script>
+</body>
+</html>

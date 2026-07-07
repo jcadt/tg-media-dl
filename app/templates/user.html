@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TG Media Downloader</title>
+<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d1117; color: #c9d1d9; min-height: 100vh;
+  }
+  .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 16px 0; border-bottom: 1px solid #30363d; margin-bottom: 24px;
+  }
+  h1 { font-size: 1.5rem; color: #f0f6fc; }
+  h2 { font-size: 1.2rem; color: #f0f6fc; margin-bottom: 12px; }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 0.75rem; font-weight: 600;
+  }
+  .badge-ok { background: #1a7f37; color: #fff; }
+  .badge-err { background: #da3633; color: #fff; }
+  .badge-warn { background: #9e6a03; color: #fff; }
+  .badge-info { background: #1f6feb; color: #fff; }
+  .badge-neutral { background: #30363d; color: #c9d1d9; }
+  .card {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card-title { font-size: 0.9rem; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  label { display: block; font-size: 0.85rem; color: #8b949e; margin-bottom: 4px; }
+  input[type="text"] {
+    width: 100%; padding: 10px 12px; background: #0d1117; border: 1px solid #30363d;
+    border-radius: 6px; color: #c9d1d9; font-size: 1rem; margin-bottom: 12px;
+  }
+  input:focus { outline: none; border-color: #58a6ff; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 10px 20px; border-radius: 6px; border: 1px solid #30363d;
+    background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 0.9rem;
+    transition: background 0.15s; width: 100%; justify-content: center;
+  }
+  .btn:hover { background: #30363d; }
+  .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-sm { padding: 6px 14px; font-size: 0.8rem; width: auto; }
+  .radio-group { display: flex; gap: 16px; margin-bottom: 12px; justify-content: center; }
+  .radio-group label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 1rem; color: #c9d1d9; }
+  .result-box {
+    padding: 16px; border-radius: 8px; margin-top: 16px; border: 1px solid #30363d;
+  }
+  .result-box.exists {
+    background: #0d2818; border-color: #1a7f37;
+  }
+  .result-box.not-found {
+    background: #281010; border-color: #da3633;
+  }
+  .result-box.success {
+    background: #0d2818; border-color: #1a7f37;
+  }
+  .result-box.pending {
+    background: #1c1a0d; border-color: #9e6a03;
+  }
+  .result-icon { font-size: 2rem; margin-bottom: 8px; }
+  .result-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; }
+  .result-detail { font-size: 0.85rem; color: #8b949e; line-height: 1.6; }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #30363d; border-top-color: #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .user-info { display: flex; align-items: center; gap: 12px; font-size: 0.85rem; }
+  .requests-list { margin-top: 16px; }
+  .request-item {
+    padding: 10px 12px; border-bottom: 1px solid #21262d;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .request-item:last-child { border-bottom: none; }
+  .status-pending { color: #d29922; }
+  .status-approved { color: #3fb950; }
+  .status-rejected { color: #f85149; }
+  #toast-container { position: fixed; top: 20px; right: 20px; z-index: 200; }
+  .toast { padding: 12px 20px; border-radius: 8px; margin-bottom: 8px; font-size: 0.85rem; animation: slideIn 0.3s; }
+  .toast-success { background: #1a7f37; color: #fff; }
+  .toast-error { background: #da3633; color: #fff; }
+  .toast-info { background: #1f6feb; color: #fff; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>📥 TG Media Downloader</h1>
+    <div class="user-info">
+      {% if user %}
+      <span>{{ user.name or user.email }}</span>
+      <span class="badge badge-neutral">usuario</span>
+      <a href="/auth/logout" class="btn btn-sm">Cerrar sesión</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <div style="text-align:center;margin-bottom:24px;color:#8b949e">
+    Busca una serie o película. Comprobamos si está en la biblioteca y te informamos del resultado.
+  </div>
+
+  <!-- Search form -->
+  <div class="card">
+    <div class="card-title">🔍 Buscar contenido</div>
+    <div class="radio-group">
+      <label><input type="radio" name="kind" value="series" checked> 📺 Serie</label>
+      <label><input type="radio" name="kind" value="movie"> 🎬 Película</label>
+    </div>
+    <label for="query">Nombre de la serie o película</label>
+    <input type="text" id="query" name="query" placeholder="Ej: After Life" autofocus>
+    <button class="btn btn-primary" id="search-btn" onclick="searchContent()">🔍 Buscar</button>
+  </div>
+
+  <!-- Result display -->
+  <div id="result-area"></div>
+
+  <!-- User's previous requests -->
+  <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between">
+      <span>📋 Mis solicitudes</span>
+      <button class="btn btn-sm" onclick="loadMyRequests()">🔄</button>
+    </div>
+    <div id="my-requests"><p class="empty" style="color:#8b949e;text-align:center;padding:20px">Cargando...</p></div>
+  </div>
+</div>
+
+<script>
+// ── Init ────────────────────────────────────────────────
+loadMyRequests();
+
+// ── Search ──────────────────────────────────────────────
+async function searchContent() {
+  const query = document.getElementById('query').value.trim();
+  const kind = document.querySelector('input[name="kind"]:checked').value;
+  const btn = document.getElementById('search-btn');
+
+  if (!query) { toast('Escribe un nombre para buscar', 'error'); return; }
+
+  const area = document.getElementById('result-area');
+  area.innerHTML = `<div class="result-box"><div class="spinner"></div> Buscando en la biblioteca...</div>`;
+
+  // Phase 1: Check library
+  try {
+    const r = await fetch(`/api/check-${kind}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `query=${encodeURIComponent(query)}`,
+    });
+    const data = await r.json();
+
+    if (data.exists) {
+      // ALREADY EXISTS
+      if (kind === 'series') {
+        const seasons = [...new Set(data.episodes.map(e => e.season))];
+        area.innerHTML = `<div class="result-box exists">
+          <div class="result-icon">✅</div>
+          <div class="result-title">"${query}" ya está en la biblioteca</div>
+          <div class="result-detail">
+            📂 ${data.series.name}${data.series.year ? ` (${data.series.year})` : ''}<br>
+            📺 ${data.episodes.length} episodios en ${seasons.length} temporada${seasons.length !== 1 ? 's' : ''}
+          </div>
+        </div>`;
+      } else {
+        area.innerHTML = `<div class="result-box exists">
+          <div class="result-icon">✅</div>
+          <div class="result-title">"${query}" ya está en la biblioteca</div>
+          <div class="result-detail">🎬 ${data.title}${data.year ? ` (${data.year})` : ''}</div>
+        </div>`;
+      }
+      return;
+    }
+
+    // Phase 2: Not in library — submit request
+    area.innerHTML = `<div class="result-box">
+      <div class="result-icon">📤</div>
+      <div class="result-title">No encontrado en la biblioteca</div>
+      <div class="result-detail" style="margin-bottom:12px">
+        "${query}" no está en la biblioteca actualmente.
+        Puedes solicitar que la añadan.
+      </div>
+      <button class="btn btn-primary" onclick="submitRequest('${kind}', '${query.replace(/'/g, "\\'")}')">📤 Solicitar descarga</button>
+    </div>`;
+
+  } catch (e) {
+    area.innerHTML = `<div class="result-box not-found">
+      <div class="result-icon">❌</div>
+      <div class="result-title">Error de conexión</div>
+      <div class="result-detail">${e}</div>
+    </div>`;
+  }
+}
+
+async function submitRequest(kind, query) {
+  const area = document.getElementById('result-area');
+  area.innerHTML = `<div class="result-box"><div class="spinner"></div> Enviando solicitud...</div>`;
+
+  try {
+    const r = await fetch('/api/request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: `kind=${kind}&query=${encodeURIComponent(query)}`,
+    });
+    const data = await r.json();
+
+    if (data.already_exists) {
+      area.innerHTML = `<div class="result-box exists">
+        <div class="result-icon">✅</div>
+        <div class="result-title">"${query}" ya está en la biblioteca</div>
+        <div class="result-detail">${data.message}</div>
+      </div>`;
+    } else if (data.already_requested) {
+      area.innerHTML = `<div class="result-box pending">
+        <div class="result-icon">🕐</div>
+        <div class="result-title">Ya solicitado</div>
+        <div class="result-detail">${data.message}</div>
+      </div>`;
+    } else if (data.success) {
+      area.innerHTML = `<div class="result-box success">
+        <div class="result-icon">✅</div>
+        <div class="result-title">Solicitud enviada</div>
+        <div class="result-detail">${data.message}</div>
+      </div>`;
+      loadMyRequests();
+      toast('Solicitud enviada', 'success');
+    } else {
+      area.innerHTML = `<div class="result-box not-found">
+        <div class="result-icon">❌</div>
+        <div class="result-title">Error</div>
+        <div class="result-detail">${data.error || 'Error desconocido'}</div>
+      </div>`;
+    }
+  } catch (e) {
+    area.innerHTML = `<div class="result-box not-found">
+      <div class="result-icon">❌</div>
+      <div class="result-title">Error de conexión</div>
+      <div class="result-detail">${e}</div>
+    </div>`;
+  }
+}
+
+// ── My requests ─────────────────────────────────────────
+async function loadMyRequests() {
+  const container = document.getElementById('my-requests');
+  try {
+    const r = await fetch('/api/requests');
+    const data = await r.json();
+    if (!data.requests || !data.requests.length) {
+      container.innerHTML = '<p class="empty" style="color:#8b949e;text-align:center;padding:20px">No has hecho ninguna solicitud todavía</p>';
+      return;
+    }
+    container.innerHTML = data.requests.map(r => {
+      const statusIcon = r.status === 'approved' ? '✅' : r.status === 'rejected' ? '❌' : '🕐';
+      return `<div class="request-item">
+        <div><strong>${r.query}</strong> <span style="font-size:0.8rem;color:#8b949e">(${r.kind})</span></div>
+        <div><span class="status-${r.status}">${statusIcon} ${r.status}</span></div>
+      </div>`;
+    }).join('');
+  } catch {
+    container.innerHTML = '<p class="empty" style="color:#8b949e;text-align:center;padding:20px">Error al cargar</p>';
+  }
+}
+
+// ── Toast ───────────────────────────────────────────────
+function toast(msg, type = 'success') {
+  const c = document.getElementById('toast-container') || (() => { const el = document.createElement('div'); el.id = 'toast-container'; document.body.appendChild(el); return el; })();
+  const t = document.createElement('div'); t.className = `toast toast-${type}`; t.textContent = msg; c.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+document.addEventListener('DOMContentLoaded', () => { const el = document.createElement('div'); el.id = 'toast-container'; document.body.appendChild(el); });
+</script>
+</body>
+</html>

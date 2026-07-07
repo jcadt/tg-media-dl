@@ -1,4 +1,4 @@
-"""SQLite database for job queue and history."""
+"""SQLite database for job queue, history, users, and requests."""
 
 import json
 import sqlite3
@@ -25,14 +25,40 @@ def init_db() -> None:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
+                name        TEXT NOT NULL UNIQUE,
                 session_str TEXT NOT NULL,
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS users (
+                id          TEXT PRIMARY KEY,
+                email       TEXT NOT NULL UNIQUE,
+                name        TEXT NOT NULL DEFAULT '',
+                role        TEXT NOT NULL DEFAULT 'user'
+                            CHECK(role IN ('admin', 'user')),
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                last_login  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS requests (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     TEXT NOT NULL REFERENCES users(id),
+                user_email  TEXT NOT NULL,
+                user_name   TEXT NOT NULL DEFAULT '',
+                kind        TEXT NOT NULL CHECK(kind IN ('series', 'movie')),
+                query       TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'pending'
+                            CHECK(status IN ('pending', 'approved', 'rejected', 'error')),
+                message     TEXT DEFAULT '',
+                job_id      INTEGER REFERENCES jobs(id),
                 created_at  TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS jobs (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id  INTEGER REFERENCES requests(id),
                 kind        TEXT NOT NULL CHECK(kind IN ('series','movie')),
                 query       TEXT NOT NULL,
                 channel_id  INTEGER,
@@ -63,6 +89,83 @@ def init_db() -> None:
         """)
 
 
+# ── User helpers ───────────────────────────────────────────
+
+def upsert_user(user_id: str, email: str, name: str, role: str = "user") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO users (id, email, name, role, last_login)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(id) DO UPDATE SET
+                 email=excluded.email,
+                 name=excluded.name,
+                 last_login=excluded.last_login""",
+            (user_id, email, name, role),
+        )
+
+
+def get_user(user_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_email(email: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email=?", (email,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+# ── Request helpers ─────────────────────────────────────────
+
+def create_request(user_id: str, user_email: str, user_name: str,
+                   kind: str, query: str) -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            """INSERT INTO requests (user_id, user_email, user_name, kind, query)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, user_email, user_name, kind, query),
+        )
+        return cur.lastrowid
+
+
+def update_request(req_id: int, **kwargs: Any) -> None:
+    fields = [f"{k}=?" for k in kwargs]
+    vals = list(kwargs.values())
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE requests SET {', '.join(fields)}, updated_at=datetime('now') WHERE id=?",
+            (*vals, req_id),
+        )
+
+
+def get_request(req_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM requests WHERE id=?", (req_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_requests(limit: int = 50, status: str | None = None) -> list[dict]:
+    with get_conn() as conn:
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM requests WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM requests ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_pending_requests(limit: int = 50) -> list[dict]:
+    return list_requests(limit=limit, status="pending")
+
+
 # ── Session helpers ──────────────────────────────────────────
 
 def save_session(name: str, session_str: str) -> None:
@@ -70,7 +173,9 @@ def save_session(name: str, session_str: str) -> None:
         conn.execute(
             """INSERT INTO sessions (name, session_str, updated_at)
                VALUES (?, ?, datetime('now'))
-               ON CONFLICT(name) DO UPDATE SET session_str=excluded.session_str, updated_at=excluded.updated_at""",
+               ON CONFLICT(name) DO UPDATE SET
+                 session_str=excluded.session_str,
+                 updated_at=excluded.updated_at""",
             (name, session_str),
         )
 
@@ -86,11 +191,13 @@ def load_session(name: str) -> str | None:
 # ── Job helpers ──────────────────────────────────────────────
 
 def create_job(kind: str, query: str, channel_id: int | None = None,
-               channel_name: str | None = None) -> int:
+               channel_name: str | None = None,
+               request_id: int | None = None) -> int:
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO jobs (kind, query, channel_id, channel_name) VALUES (?, ?, ?, ?)",
-            (kind, query, channel_id, channel_name),
+            """INSERT INTO jobs (kind, query, channel_id, channel_name, request_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (kind, query, channel_id, channel_name, request_id),
         )
         return cur.lastrowid
 
