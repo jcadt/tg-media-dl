@@ -123,13 +123,11 @@
     <!-- Channel config -->
     <div class="card">
       <div class="card-title">📡 Configuración de canales</div>
-      <label for="channel-series">📺 Canal para series</label>
-      <select id="channel-series">
-        <option value="">-- Sin asignar --</option>
+      <label for="channel-series">📺 Canales para series (Ctrl+clic para varios)</label>
+      <select id="channel-series" multiple size="5">
       </select>
-      <label for="channel-movie">🎬 Canal para películas</label>
-      <select id="channel-movie">
-        <option value="">-- Sin asignar --</option>
+      <label for="channel-movie">🎬 Canales para películas (Ctrl+clic para varios)</label>
+      <select id="channel-movie" multiple size="5">
       </select>
       <div id="channel-info" style="font-size:0.8rem;color:#8b949e;margin-bottom:8px"></div>
       <div class="btn-group">
@@ -225,22 +223,26 @@ async function checkStatus() {
 
 // ── Channels ────────────────────────────────────────────
 async function loadChannels() {
-  const selects = ['channel-series', 'channel-movie', 'channel-scan'];
-  for (const id of selects) {
-    document.getElementById(id).innerHTML = '<option>Cargando...</option>';
+  const configSelects = ['channel-series', 'channel-movie'];
+  const scanSel = document.getElementById('channel-scan');
+  for (const id of configSelects) {
+    document.getElementById(id).innerHTML = '<option disabled>Cargando...</option>';
   }
+  scanSel.innerHTML = '<option value="">Cargando...</option>';
   try {
     const r = await fetch('/api/channels');
     const data = await r.json();
     if (data.error) {
-      for (const id of selects) {
-        document.getElementById(id).innerHTML = '<option value="">Error: ' + data.error + '</option>';
+      for (const id of configSelects) {
+        document.getElementById(id).innerHTML = '<option disabled>Error: ' + data.error + '</option>';
       }
+      scanSel.innerHTML = '<option value="">Error: ' + data.error + '</option>';
       return;
     }
-    for (const id of selects) {
+    // Populate config multi-selects (all channels)
+    for (const id of configSelects) {
       const sel = document.getElementById(id);
-      sel.innerHTML = '<option value="">' + (id === 'channel-scan' ? '-- Selecciona un canal --' : '-- Sin asignar --') + '</option>';
+      sel.innerHTML = '';
       for (const ch of data.channels) {
         const opt = document.createElement('option'); opt.value = ch.id;
         opt.textContent = `${ch.kind === 'channel' ? '📢' : '💬'} ${ch.name}`;
@@ -249,37 +251,79 @@ async function loadChannels() {
     }
     document.getElementById('channel-info').textContent = `${data.channels.length} canales`;
     // Restore saved config
-    if (window._cfgSeries) document.getElementById('channel-series').value = window._cfgSeries;
-    if (window._cfgMovie) document.getElementById('channel-movie').value = window._cfgMovie;
-    updateChannelSelect();
+    restoreMultiSelect('channel-series', window._cfgSeries || []);
+    restoreMultiSelect('channel-movie', window._cfgMovie || []);
+    populateScanChannels(data.channels);
   } catch {}
+}
+
+function restoreMultiSelect(selectId, selectedValues) {
+  const sel = document.getElementById(selectId);
+  if (!sel || !selectedValues.length) return;
+  const vals = Array.isArray(selectedValues) ? selectedValues : selectedValues.split(',').filter(Boolean);
+  for (const opt of sel.options) {
+    if (vals.includes(opt.value)) opt.selected = true;
+  }
+}
+
+function populateScanChannels(allChannels) {
+  const kind = document.querySelector('input[name="kind"]:checked').value;
+  const cfgChannels = kind === 'series' ? (window._cfgSeries || []) : (window._cfgMovie || []);
+  const cfgVals = Array.isArray(cfgChannels) ? cfgChannels : cfgChannels.split(',').filter(Boolean);
+  const scanSel = document.getElementById('channel-scan');
+  scanSel.innerHTML = '<option value="">-- Selecciona un canal --</option>';
+  // Filter to only assigned channels, or show all if none assigned
+  const channels = cfgVals.length
+    ? allChannels.filter(ch => cfgVals.includes(String(ch.id)))
+    : allChannels;
+  for (const ch of channels) {
+    const opt = document.createElement('option'); opt.value = ch.id;
+    opt.textContent = `${ch.kind === 'channel' ? '📢' : '💬'} ${ch.name}`;
+    scanSel.appendChild(opt);
+  }
+  if (cfgVals.length && channels.length) {
+    // Add "Todos" option for batch mode (first option)
+    const allOpt = document.createElement('option'); allOpt.value = '__all__';
+    allOpt.textContent = `🌐 Todos (${channels.length} canales)`;
+    scanSel.prepend(allOpt);
+  }
 }
 
 // ── Channel config ──────────────────────────────────────
 function updateChannelSelect() {
-  const kind = document.querySelector('input[name="kind"]:checked').value;
-  const cfgId = kind === 'series' ? window._cfgSeries : window._cfgMovie;
-  const scanSel = document.getElementById('channel-scan');
-  if (cfgId && scanSel.querySelector(`option[value="${cfgId}"]`)) {
-    scanSel.value = cfgId;
-  }
+  // Reload scan channels based on selected type
+  const r = new XMLHttpRequest();
+  r.open('GET', '/api/channels', true);
+  r.onload = function() {
+    if (r.status === 200) {
+      const data = JSON.parse(r.responseText);
+      if (data.channels) populateScanChannels(data.channels);
+    }
+  };
+  r.send();
 }
 
 async function saveChannelConfig() {
-  const series = document.getElementById('channel-series').value;
-  const movie = document.getElementById('channel-movie').value;
+  const seriesSel = document.getElementById('channel-series');
+  const movieSel = document.getElementById('channel-movie');
+  const series = Array.from(seriesSel.selectedOptions).map(o => o.value).join(',');
+  const movie = Array.from(movieSel.selectedOptions).map(o => o.value).join(',');
   const result = document.getElementById('channel-save-result');
   try {
     const r = await fetch('/api/channel-config', {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-      body: `series=${series}&movie=${movie}`,
+      body: `series=${encodeURIComponent(series)}&movie=${encodeURIComponent(movie)}`,
     });
     const data = await r.json();
-    window._cfgSeries = data.series;
-    window._cfgMovie = data.movie;
+    window._cfgSeries = data.series ? data.series.split(',') : [];
+    window._cfgMovie = data.movie ? data.movie.split(',') : [];
     result.innerHTML = '✅ Configuración guardada';
-    updateChannelSelect();
+    // Reload scan select without refetching channels
+    const xr = new XMLHttpRequest();
+    xr.open('GET', '/api/channels', true);
+    xr.onload = function() { if (xr.status === 200) populateScanChannels(JSON.parse(xr.responseText).channels || []); };
+    xr.send();
     setTimeout(() => result.innerHTML = '', 3000);
     toast('Configuración de canales guardada', 'success');
   } catch (e) { result.innerHTML = '❌ Error: ' + e; }
@@ -292,8 +336,30 @@ async function startScan() {
   const kind = document.querySelector('input[name="kind"]:checked').value;
   if (!channelId) { toast('Selecciona un canal', 'error'); return; }
   if (!query) { toast('Escribe un nombre', 'error'); return; }
+
+  if (channelId === '__all__') {
+    // Scan all assigned channels for this type
+    const channels = getAssignedChannels(kind);
+    toast(`Escaneando ${channels.length} canales para "${query}"...`, 'info');
+    for (const chId of channels) {
+      const div = document.getElementById('scan-result');
+      div.innerHTML = `🔍 Escaneando canal ${chId}...`;
+      await doScan(chId, query, kind);
+    }
+    return;
+  }
+
+  await doScan(channelId, query, kind);
+}
+
+function getAssignedChannels(kind) {
+  const cfg = kind === 'series' ? window._cfgSeries : window._cfgMovie;
+  const cfgVals = Array.isArray(cfg) ? cfg : (cfg ? cfg.split(',').filter(Boolean) : []);
+  return cfgVals;
+}
+
+async function doScan(channelId, query, kind) {
   const div = document.getElementById('scan-result');
-  div.innerHTML = '🔍 Escaneando...';
   try {
     const r = await fetch('/api/scan', {
       method: 'POST',
